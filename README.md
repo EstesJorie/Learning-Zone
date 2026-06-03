@@ -19,4 +19,4 @@ uv sync --frozen --group <group_name>
 
 ## Table of Contents
 
-[Pydantic V2](./pydantic-NOTES.MD)
+[Pydantic V2](./scripts/pydantic//pydantic-NOTES.MD)
