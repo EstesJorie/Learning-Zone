@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/python-3.14%2B-blue)](#)
 [![Ruff](https://img.shields.io/badge/style-ruff-black)](#)
-[![Pre-Commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)
+[![Pre-Commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](#)
 [![UV](https://img.shields.io/badge/Package%20Manager-uv-purple)](#)
 
 This is a Python learning repo.
