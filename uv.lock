@@ -1074,7 +1074,6 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
     { name = "requests" },
     { name = "seaborn" },
-    { name = "sqlalchemy" },
 ]
 
 [package.dev-dependencies]
@@ -1087,6 +1086,7 @@ dev = [
 fastapi = [
     { name = "fastapi", extra = ["standard"] },
     { name = "pydantic", extra = ["email"] },
+    { name = "sqlalchemy" },
 ]
 pydantic = [
     { name = "pydantic", extra = ["email"] },
@@ -1101,7 +1101,6 @@ requires-dist = [
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.4" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "sqlalchemy", specifier = ">=2.0.50" },
 ]
 
 [package.metadata.requires-dev]
@@ -1114,6 +1113,7 @@ dev = [
 fastapi = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.136.3" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.4" },
+    { name = "sqlalchemy", specifier = ">=2.0.50" },
 ]
 pydantic = [{ name = "pydantic", extras = ["email"], specifier = ">=2.13.4" }]
 
