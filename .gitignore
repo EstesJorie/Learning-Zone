@@ -21,3 +21,5 @@ build/
 venv/
 ENV/
 env/
+
+scripts/fastapi/blog.db
