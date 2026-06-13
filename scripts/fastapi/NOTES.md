@@ -1,4 +1,4 @@
-# FastAPI
+# FastAPI
 
 Python web-framework for creating APIs.
 
@@ -6,7 +6,7 @@ Python web-framework for creating APIs.
 
 First, we need to install FastAPI. We are using `uv` in this project so run:
 
-```zsh
+``zsh
 uv add "fastapi[standard]"
 ```
 
@@ -243,7 +243,7 @@ def get_post(post_id: int):
 
 In the above example we create a new path, to return a specific post at a specifed post id. The `{post_id}` is the Path parameter which tells FastAPI it is part of the URL which is a variable. Whatever value we enter there is then pased into function as the variable `post_id`. The type hint allows us to automatically validate that the input is correct.
 
-### Error Handling
+### Error Handling
 
 One major issue arises from this `return {"error": "Post not found"}` as if we go to an post id that does not exist, it will still return a 200 SUCCESS message. This behaviour is contradictory and rather confusing as we would expect it return an error. Lets import the `HTTPExecption` and `status` objects from FastAPI to ensure we correctly raise the error. The `HTTPException` is used to return correct HTTP error responses, and `status` provides us with a list of HTTP status codes.
 
@@ -329,3 +329,89 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY
     )
 ```
+
+## Validation via Pydantic
+
+We can use Pydantic schemas to validate our requests and responses. Pydantic is a data validation library that uses Python type hints. These type hints are enforced at runtime and ensure errors are accurate and detailed. Pydantic integrates very well with FastAPI.
+
+Lets create the schemas that which we can then use in our FastAPI responses. We typically do this in a separate file (`schemas.py`) and then import our schemas throughout our application code.
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+```
+
+`BaseModel` is the base class that all of our Pydantic models inherit from, `Field` lets us add constraints, and `ConfigDict` is how we configure our models. Lets create the base model for a post for our application. This *base* model is the definition of what a post is and what is required to make something a post.
+
+```python
+class PostBase(BaseModel):
+    """Base model for a post."""
+    title: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1)
+    author: str = Field(min_length=1, max_length=50)
+
+class PostCreate(PostBase):
+    """Model for creating a new post."""
+    pass
+```
+
+Here, we are utilising the `Field` object to ensure that our model attributes meet specific conditions. Also, note that we are not providing any default values, so all of these parameters are required by default. We'll also create a response model:
+
+```python
+class PostResponse(PostBase):
+    """Model for responding with a post."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    date_posted: str
+```
+
+Currently, our posts are dictionaries and as such we access it with `[]` syntax. But, when we use a database we access the data via dot notation so adding the `from_attributes` allows it to read from objects via the dot notation.
+
+With our schemas defined, lets update our endpoints in `main.py `
+
+```python
+from schemas import from schemas import PostCreate, PostResponse
+
+...
+
+@app.get("/api/posts", response_model=list[PostResponse])
+def get_posts():
+    return posts
+
+
+@app.get("/api/posts/{post_id}", response_model=PostResponse)
+def get_post(post_id: int):
+    for post in posts:
+        if post.get("id") == post_id:
+            return post
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+```
+
+Here, we add this `response_model` to our decorators which ensures that any responses at these API endpoints adhere to the expected behaviour that we have set.
+
+So far we have create endpoints to get data, but we can also create new entries or POST data to our application/databse.
+
+```python
+@app.post(path="/api/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
+def create_post(post: PostCreate):
+    """Create a new post.
+
+    Args:
+        post (PostCreate): The post data to create.
+
+    Returns:
+        PostResponse: The created post.
+    """
+    new_id = max(p['id'] for p in posts) + 1 if posts else 1
+    new_post = {
+        "id": new_id,
+        "author": post.author,
+        "title": post.title,
+        "content": post.content,
+        "date_posted": datetime.now().strftime("%B %d, %Y"),
+    }
+    posts.append(new_post)
+    return new_post
+```
+
+Here, we use the `PostCreate` model that we defined earlier to ensure that any new posts adhere to the correct format. Note, that we are using a docustring to give our function information. This will appear onto our documentation which also helps to remove ambiguity so that users to use our API correctly.

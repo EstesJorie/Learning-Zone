@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.exceptions import RequestValidationError
@@ -6,6 +7,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from schemas import PostCreate, PostResponse
 
 app = FastAPI()  # create instance of FastAPI
 
@@ -40,6 +43,8 @@ posts: list[dict] = [
     },
 ]
 
+# ------- ENDPOINTS -------
+
 
 @app.get(
     "/", include_in_schema=False, name="home"
@@ -48,6 +53,14 @@ posts: list[dict] = [
     "/posts", include_in_schema=False, name="posts"
 )  # stack routes to the same function
 def home(request: Request):  # define the function to handle the request
+    """Render the home page with a list of posts.
+
+    Args:
+        request (Request): The incoming request.
+
+    Returns:
+        TemplateResponse: The rendered home page.
+    """
     return templates.TemplateResponse(
         request,
         "home.html",
@@ -60,6 +73,15 @@ def home(request: Request):  # define the function to handle the request
 
 @app.get("/posts/{post_id}", include_in_schema=False, name="post_page")
 def post_page(request: Request, post_id: int):
+    """Render a specific post page based on the post ID.
+
+    Args:
+        request (Request): The incoming request.
+        post_id (int): The ID of the post to retrieve.
+
+    Returns:
+        TemplateResponse: The rendered post page.
+    """
     for post in posts:
         if post.get("id") == post_id:
             post_title = post["title"][:50]  # Limit title to 50 characters
@@ -69,21 +91,71 @@ def post_page(request: Request, post_id: int):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 
-@app.get("/api/posts")
+@app.get("/api/posts", response_model=list[PostResponse])
 def get_posts():
+    """Retrieve all posts.
+
+    Returns:
+        list[PostResponse]: A list of all posts.
+    """
     return posts
 
 
-@app.get("/api/posts/{post_id}")
+@app.get("/api/posts/{post_id}", response_model=PostResponse)
 def get_post(post_id: int):
+    """Retrieve a specific post by ID.
+
+    Args:
+        post_id (int): The ID of the post to retrieve.
+
+    Returns:
+        PostResponse: The requested post.
+    """
     for post in posts:
         if post.get("id") == post_id:
             return post
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 
+@app.post(
+    path="/api/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED
+)
+def create_post(post: PostCreate):
+    """Create a new post.
+
+    Args:
+        post (PostCreate): The post data to create.
+
+    Returns:
+        PostResponse: The created post.
+    """
+    new_id = max(p["id"] for p in posts) + 1 if posts else 1
+    new_post = {
+        "id": new_id,
+        "author": post.author,
+        "title": post.title,
+        "content": post.content,
+        "date_posted": datetime.now().strftime("%B %d, %Y"),
+    }
+    posts.append(new_post)
+    return new_post
+
+
+# ------- EXCEPTIONS -------
+
+
 @app.exception_handler(StarletteHTTPException)
 def general_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Handle general HTTP exceptions for both API and web routes.
+
+    Args:
+        request (Request): The incoming request.
+        exc (StarletteHTTPException): The HTTP exception.
+
+    Returns:
+        JSONResponse or TemplateResponse: Returns a JSON response for API routes and a template response for
+        web routes.
+    """
     message = (
         exc.detail
         if exc.detail
@@ -109,6 +181,16 @@ def general_http_exception_handler(request: Request, exc: StarletteHTTPException
 
 @app.exception_handler(RequestValidationError)
 def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors for both API and web routes.
+
+    Args:
+        request (Request): The incoming request.
+        exc (RequestValidationError): The validation error exception.
+
+    Returns:
+        JSONResponse or TemplateResponse: Returns a JSON response for API routes and a template response for
+        web routes.
+    """
     if request.url.path.startswith("/api"):
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
