@@ -415,3 +415,398 @@ def create_post(post: PostCreate):
 ```
 
 Here, we use the `PostCreate` model that we defined earlier to ensure that any new posts adhere to the correct format. Note, that we are using a docustring to give our function information. This will appear onto our documentation which also helps to remove ambiguity so that users to use our API correctly.
+
+## Using a Database
+
+Up until now we have been using the hardcoded lists of posts. Lets fix that! We are going to use an SQLite database, and we will talk to it with SQLAlchemy.
+
+```python
+uv add sqlalchemy
+```
+
+To setup our database, we will need to create a `database.py` to hold all of our database setup code.
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///./blog.db"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+class Base(DeclarativeBase):
+    """Base class for SQLAlchemy models."""
+
+    pass
+
+def get_db():
+    """Get a database session.
+
+    Yields:
+        Session: A SQLAlchemy session.
+    """
+    with SessionLocal() as db:
+        yield db
+```
+
+Here, we are setting up the parameters of our database. The `SessionLocal` is a factory that creates sessions between us and our databases. The `get_db()` function allows our routes to get sessions with the database.
+
+Now, we need to create the database models that our API will interact with. First, lets create our `models.py` file and set up our imports:
+
+```python
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, Integer, ForeignKey, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from database import Base
+```
+
+We can now define our database models (`models.py`):
+
+```python
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, Integer, ForeignKey, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from database import Base
+
+class User(Base):
+    """SQLAlchemy model for a user.
+
+    Attributes:
+        __tablename__ (str): The name of the database table.
+        id (Mapped[int]): The primary key ID of the user.
+        username (Mapped[str]): The username of the user.
+        email (Mapped[str]): The email address of the user.
+        image_file (Mapped[str | None]): The profile image file path of the user.
+        posts (Mapped[list[Post]]): The list of posts authored by the user.
+    """
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    image_file: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
+
+    posts: Mapped[list[Post]] = relationship("Post", back_populates="author") # 1 to many relationship
+
+    @property
+    def image_path(self) -> str:
+        """Get the full path to the user's profile image.
+
+        Returns:
+            str: The full path to the profile image.
+        """
+        if self.image_file:
+            return f"/media/profile_pics/{self.image_file}"
+        return "/static/profile_pics/default.jpg"
+
+class Post(Base):
+    """SQLAlchemy model for a post.
+
+    Attributes:
+        __tablename__ (str): The name of the database table.
+        id (Mapped[int]): The primary key ID of the post.
+        title (Mapped[str]): The title of the post.
+        content (Mapped[str]): The content of the post.
+        date_posted (Mapped[datetime]): The date and time the post was created.
+        user_id (Mapped[int]): The foreign key ID of the user who authored the post.
+        author (Mapped[User]): The relationship to the User model.
+    """
+    __tablename__ = "posts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    date_posted: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    author: Mapped[User] = relationship("User", back_populates="posts")  # many to 1 relationship
+```
+
+These are the base models for both Users and Posts that our SQLite database will use to store our users and their posts. Now, we need to update our schemas to ensure that we are adhering to new models we have created in our database.
+
+```python
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
+
+class UserBase(BaseModel):
+    """Base model for a user"""
+    username: str = Field(min_length=1, max_length=50)
+    email: EmailStr = Field(max_length=120)
+
+class UserCreate(UserBase):
+    pass
+
+class UserResponse(UserBase):
+    """Model for responding with a user."""
+
+    model_config = ConfigDict(
+        from_attributes=True
+    )
+
+    id: int
+    image_file: str | None
+    image_path: str
+
+...
+
+class PostResponse(PostBase):
+    """Model for responding with a post."""
+
+    model_config = ConfigDict(
+        from_attributes=True
+    )  # we can read data from attributes of an object, not just dicts
+
+    id: int  # scoped to class, typically we avoid id in Python
+    user_id: int
+    date_posted: datetime
+    author: UserResponse
+```
+
+Here, we are adding a new base model for Users, and just like for posts we create a UserCreate and a UserResponse model. We also need to update our PostResponse as we now expect more infromation for a PostReponse, such as the `user_id` of who posted it, the `date_posted` needs to be a datetime object instead of a fixed date, and the author is a `UserResponse` object as we set up a relationship between the Users and the Posts in our database.
+
+Now we are ready to get our database up and going. In `main.py` we are going to need a few more imports:
+
+```python
+from typing import Annotated
+
+from fastapi import Depends
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+import models
+from database import Base, engine, get_db
+```
+
+With these imports we are importing the tools and models necessary to safely and correctly initalise our new database. First of which, we need to ensure that we create any of our tables that uses our `Base` model. To do this we add:
+
+```python
+Base.metadata.create_all(bind=engine)
+```
+
+This creates the tables if they do not exist, and is idempotent which ensures that the same action is repeatble on launch of our application. We also need to ensure our media folder is mounted into our app:
+
+```python
+media_dir = "media"
+if not os.path.isdir(media_dir):
+    try:
+        os.makedirs(media_dir)
+    except Exception as e:
+        raise ValueError(
+            f"Failed to create media directory '{media_dir}'. Please ensure the application has the necessary permissions. Error: {e}"
+        )
+app.mount("/media", StaticFiles(directory=media_dir), name="media")
+```
+
+We use a try/except block to ensure that we can safely create the missing media folder, and safely fallback if it not possible. We will need a new route to create a user in our database:
+
+```python
+@app.post(
+    path="/api/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED
+)
+def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]):
+    """Create a new user."""
+
+    result = db.execute(select(models.User).where(models.User.username == user.username))
+    existing_user = result.scalars().first # gets first User obj or None if no match
+
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already exists"
+        )
+
+    result = db.execute(select(models.User).where(models.User.email == user.email))
+    existing_email = result.scalars().first
+
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already exists"
+        )
+
+    new_user = models.User(
+        username = user.username,
+        email = user.email,
+    )
+    db.add(new_user) # stages insert
+    db.commit() # executes insert
+    db.refresh(new_user) # reloads obj from db
+
+    return new_user
+```
+
+Here, we create a new database session via the `Annotated`, which relies on depdendecy injection by calling the `get_db` function and passing its result as the `db` variable here. We then perform two validation steps to ensure the new user has a unique username and a unique email. If successful, we will then create the new user, stage the insert to the database, insert it, and return the new_user as the result. We can also do the same thing with getting a new user:
+
+```python
+@app.get("/api/users/{user_id}", response_model=UserResponse)
+def get_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Get """
+
+    result = db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.scalars().first # gets first User obj or None if no match
+
+    if user:
+        return user
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+```
+
+Now, because we have removed the hardcoded list of posts and we are fetching them from the database we need to ensure that our other endpoints have been correctly updated.
+
+```python
+@app.get(
+    "/", include_in_schema=False, name="home"
+)  # define a route for the root endpoint
+@app.get(
+    "/posts", include_in_schema=False, name="posts"
+)  # stack routes to the same function
+def home(request: Request, db: Annotated[Session, Depends(get_db)]):  # define the function to handle the request
+    """Render the home page with a list of posts.
+
+    Args:
+        request (Request): The incoming request.
+        db (Session): A database session.
+
+    Returns:
+        TemplateResponse: The rendered home page.
+    """
+    res = db.execute(select(models.Post))
+    posts = res.scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "posts": posts,
+            "title": "Home",
+        },
+    )  # render the template with the posts data
+
+
+@app.get("/posts/{post_id}", include_in_schema=False, name="post_page")
+def post_page(request: Request, post_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Render a specific post page based on the post ID.
+
+    Args:
+        request (Request): The incoming request.
+        post_id (int): The ID of the post to retrieve.
+        db (Session): A database session.
+
+    Returns:
+        TemplateResponse: The rendered post page.
+    """
+    res = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = res.scalars().first()
+    if post:
+        title = post.title[:50]
+        return templates.TemplateResponse(
+            request,
+            "post.html",
+            {"post": post, "title": title},
+        )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+
+@app.get("/api/posts", response_model=list[PostResponse])
+def get_posts(db: Annotated[Session, Depends(get_db)]):
+    """ Retrieve all posts from the database.
+
+    Args:
+        db (Session): A database session.
+    Returns:
+        List[PostResponse]: List of all posts.
+    """
+    result = db.execute(select(models.Post))
+    posts = result.scalars().all()
+    return posts
+
+
+@app.get(
+    "/api/posts/{post_id}",
+    response_model=PostResponse,
+    name="api_post_detail",
+)
+def get_post(post_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Retrieve a specific post by ID.
+
+    Args:
+        post_id (int): The ID of the post.
+        db (Session): A database session.
+
+    Returns:
+        PostResponse: The requested post.
+    """
+    res = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = res.scalars().first()
+    if post:
+        return post
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+@app.get(
+    "/api/users/{user_id}/posts",
+    response_model=list[PostResponse],
+    name="user_posts",
+)
+def get_user_posts(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Retrieve all posts for a specific user by user ID.
+
+    Args:
+        user_id (int): The ID of the user.
+        db (Session): A database session.
+
+    Returns:
+        List[PostResponse]: List of posts for the specified user.
+    """
+    result = db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    result = db.execute(select(models.Post).where(models.Post.user_id == user_id))
+    posts = result.scalars().all()
+    return posts
+
+@app.post(
+    "/api/posts",
+    response_model=PostResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_post(post: PostCreate, db: Annotated[Session, Depends(get_db)]):
+    """Create a new post.
+
+    Args:
+        post (PostCreate): The post data to create.
+        db (Session): A database session.
+
+    Returns:
+            PostResponse: The created post.
+    """
+    result = db.execute(select(models.User).where(models.User.id == post.user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    new_post = models.Post(
+        title=post.title,
+        content=post.content,
+        user_id=post.user_id,
+    )
+    db.add(new_post)
+    db.commit()
+    db.refresh(new_post)
+    return new_post
+```

@@ -1,6 +1,28 @@
 # scripts/fastapi/schemas.py
 
-from pydantic import BaseModel, ConfigDict, Field
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
+
+
+class UserBase(BaseModel):
+    """Base model for a user"""
+
+    username: str = Field(min_length=1, max_length=50)
+    email: EmailStr = Field(max_length=120)
+
+
+class UserCreate(UserBase):
+    pass
+
+
+class UserResponse(UserBase):
+    """Model for responding with a user."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    image_file: str | None
+    image_path: str
 
 
 class PostBase(BaseModel):
@@ -8,13 +30,12 @@ class PostBase(BaseModel):
 
     title: str = Field(min_length=1, max_length=100)
     content: str = Field(min_length=1)
-    author: str = Field(min_length=1, max_length=50)
 
 
 class PostCreate(PostBase):
     """Model for creating a new post."""
 
-    pass
+    user_id: int  # temp
 
 
 class PostResponse(PostBase):
@@ -25,4 +46,6 @@ class PostResponse(PostBase):
     )  # we can read data from attributes of an object, not just dicts
 
     id: int  # scoped to class, typically we avoid id in Python
-    date_posted: str
+    user_id: int
+    date_posted: datetime
+    author: UserResponse
