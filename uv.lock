@@ -1094,7 +1094,6 @@ version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiosqlite" },
-    { name = "greenlet" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
@@ -1114,6 +1113,7 @@ dev = [
 fastapi = [
     { name = "asyncio" },
     { name = "fastapi", extra = ["standard"] },
+    { name = "greenlet" },
     { name = "pydantic", extra = ["email"] },
     { name = "sqlalchemy" },
 ]
@@ -1124,7 +1124,6 @@ pydantic = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
-    { name = "greenlet", specifier = ">=3.5.1" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "pandas", specifier = ">=3.0.3" },
@@ -1144,6 +1143,7 @@ dev = [
 fastapi = [
     { name = "asyncio", specifier = ">=4.0.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.136.3" },
+    { name = "greenlet", specifier = ">=3.5.1" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.4" },
     { name = "sqlalchemy", specifier = ">=2.0.50" },
 ]

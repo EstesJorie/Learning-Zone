@@ -1173,3 +1173,67 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 ```
+
+## Routes and Routers
+
+We can use routers to clean up our API code. A `router` is a FastAPI tool for organising routes into individual modules,
+we define the endpoints/routes on our router, and then import them into our app. Lets create a new folder called `routers`,
+and we will create a blank `__init__.py` file inside of this folder to help with our imports. We also need to create two
+new files - `posts.py` and `users.py`.
+
+### Moving Away from Main
+
+So in our new users file, we will need to the following imports:
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from typing import Annotated
+
+import models
+from ..database import get_db
+from ..schemas import PostResponse, UserCreate, UserResponse, UserUpdate
+
+router = APIRouter()
+```
+
+We can now begin to bring across our `/api/users` routes from `main.py` but we are going to need to make some changes
+before it'll work correctly.
+
+```python
+@router.get(
+    "/{user_id}/posts",
+    response_model=list[PostResponse],
+    name="user_posts",
+)
+```
+
+Instead of `@app.get` we need to use the new APIRouter at `@router.get` which ensures this new route we are making
+is routed into our application correctly. We also need to update the path to remove any reference to `/api/users` as if
+we kep this on our path, when we connect it up it would get postpended to the route like so:
+
+```shell
+/api/users/api/users
+```
+
+> Essentially we will define the root of our API endpoints in `main.py` and connect them across our routes
+
+In our `main.py` file we now need to import these routers and include them into our app.
+
+```python
+from routers import posts, users
+
+...
+
+app = FastAPI(lifespan=lifespan)
+
+app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(posts.router, prefix="/api/posts", tags=["posts"])
+```
+
+Here, `include_router` connects the router to our FastAPI app at the designated prefix. All of our routes in the router
+will get their URLs prefixed with the assigned prefix, so when we left our routes blank they will become `/api/users`.
+The tags help to organise our documentation page to create sections where our routes are located which can be expanded
+and collapsed.
