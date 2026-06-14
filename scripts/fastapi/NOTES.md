@@ -953,3 +953,223 @@ def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
     db.delete(user)
     db.commit()
 ```
+
+## Going Asynchronous
+
+**Asynchronous** (_async_) allows our program to handle multiple tasks concurrently. Currently our application, is fully
+synchronous wherein one thing happens after the other has finished. We can think about this as if we were ordering food
+at a resturant.
+
+```mermaid
+sequenceDiagram
+    participant Customer
+    participant Waiter
+    participant Kitchen
+    participant Chef
+
+    Customer->>Waiter: Place food order
+    Waiter->>Kitchen: Send order asynchronously
+
+    Note over Customer: Customer continues chatting
+    Note over Kitchen: Order queued for processing
+
+    Kitchen->>Chef: Prepare meal
+    Chef-->>Kitchen: Meal ready
+
+    Kitchen-->>Waiter: Notify meal is ready
+    Waiter-->>Customer: Serve food
+```
+
+The key idea being that after placing an order, we (the customer) do not wait idly at the counter until the food is ready.
+The kitchen prepares the food in the background, the waiter potentially takes another order, and we perform some other
+action. Therefore, the Waiter sends the order asynchronously to the kitchen, then freeing them up to do other things in
+their job cycle, the same idea applies to asychronous/concurrent code.
+
+When we created our synchronous functions via  `def <function>()`, FastAPI automatically runs it in a separate thread
+pool preventing it from the main event loop of our application. By making our function asynchronous, we place it into
+the main event loop making it more efficient but also meaning that we need to be more aware of our function.
+
+The first place we can use async is in our database. For this we will need a new package called `aiosqlite` which
+is an asynchronous connector for our SQLite database. We will also need to update our imports in `database.py`:
+
+```python
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./blog.db"
+
+engine = create_async_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+...
+
+async def get_db():
+    """An async generator that yields a session.
+
+    Yields:
+        Session: A SQLAlchemy session.
+    """
+    async with AsyncSessionLocal() as session:
+        yield session
+
+```
+
+Here, we are doing a couple of new things. Firstly, we update our connection string to use the aiosqlite connector to
+enable to asynchronously contact our database. We also update our `SessionLocal` to `AsyncSessionLocal` and pass some
+new parameters. The only one of real note is the `expire_on_commit=False`, which ensures that issues do not arise
+regarding expired objects after a `db.commit()`. We also update our `get_db()` function to be async and as such we need
+to ensure that we use the async keyword when yielding our session.
+
+In our `main.py`, we are going to need to some new imports to handle this async change.
+
+```python
+from contextlib import asynccontextmanager
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+```
+
+### Lifespan
+
+Lifespan is the modern way within FastAPI to handle startup and shutdown events. To use async in our FastAPI application
+we need to create a lifespan function which handles the life of our async application.
+
+```python
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Async context manager
+
+    Args:
+        _app (FastAPI) : An instance of the FastAPI application.
+    """
+    async with engine.begin() as conn: # get an async connection
+        await conn.run_sync(Base.metadata.create_all) # run sync create call in async context
+    try:
+        yield
+    finally:
+        await engine.dispose() # runs at shutdown
+
+app = FastAPI(lifespan=lifespan)  # create instance of FastAPI
+```
+
+This lifespan function, first does the same setup as we had before with our `Base.metadata.create_all` but runs it in an
+asynchronous context. After which it yields which covers the apps lifespan, and then finally on shutdown it disposes of
+the connection.
+
+> Importantly, in a query where we access relationships cannot be lazily loaded in asynchronous SQLAlchemy, we need to use
+**Eager loading** instead.
+
+We will then need to update all of functions to be `async def <function_name>()` instead of the standard synchronous routes.
+
+```python
+@app.get("/api/posts", response_model=list[PostResponse])
+async def get_posts(db: Annotated[AsyncSession, Depends(get_db)]):
+    """Retrieve all posts from the database.
+
+    Args:
+        db (Session): A database session.
+    Returns:
+        List[PostResponse]: List of all posts.
+    """
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)))
+    posts = result.scalars().all()
+    return posts
+```
+
+Here, we convert the function to `async` and `await` the result of our database query. There are cases wherein we will
+need to eager load the relationship between the `Post.author` and `User.posts`. For instance the `post_page` function:
+
+```python
+@app.get("/posts/{post_id}", include_in_schema=False, name="post_page")
+async def post_page(request: Request, post_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    """Render a specific post page based on the post ID.
+
+    Args:
+        request (Request): The incoming request.
+        post_id (int): The ID of the post to retrieve.
+        db (Session): A database session.
+
+    Returns:
+        TemplateResponse: The rendered post page.
+    """
+    res = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .where(models.Post.id == post_id)
+    )
+    post = res.scalars().first()
+    if post:
+        title = post.title[:50]
+        return templates.TemplateResponse(
+            request,
+            "post.html",
+            {"post": post, "title": title},
+        )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+```
+
+Here we use the `.options(selectinload(models.Post.author))` to eagerly load the relationship of the post and its author.
+
+We can also update our exception handles to take the default FastAPI async execption handlers like so:
+
+```python
+@app.exception_handler(StarletteHTTPException)
+async def general_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Handle general HTTP exceptions for both API and web routes.
+
+    Args:
+        request (Request): The incoming request.
+        exc (StarletteHTTPException): The HTTP exception.
+
+    Returns:
+        JSONResponse or TemplateResponse: Returns a JSON response for API routes and a template response for
+        web routes.
+    """
+    if request.url.path.startswith("/api"):
+        return await http_exception_handler(request, exc)
+
+    message = (
+        exc.detail
+        if exc.detail
+        else "An unexpected error occurred. Please try check your request and try again."
+    )
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        {
+            "status_code": exc.status_code,
+            "title": exc.status_code,
+            "message": message,
+        },
+        status_code=exc.status_code,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors for both API and web routes.
+
+    Args:
+        request (Request): The incoming request.
+        exc (RequestValidationError): The validation error exception.
+
+    Returns:
+        JSONResponse or TemplateResponse: Returns a JSON response for API routes and a template response for
+        web routes.
+    """
+    if request.url.path.startswith("/api"):
+        return await validation_exception_handler(request, exc)
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        {
+            "status_code": status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "title": status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "message": "Validation error. Please check your request and try again.",
+        },
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+```
