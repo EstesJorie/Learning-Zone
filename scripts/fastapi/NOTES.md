@@ -810,3 +810,146 @@ def create_post(post: PostCreate, db: Annotated[Session, Depends(get_db)]):
     db.refresh(new_post)
     return new_post
 ```
+
+## CRUD Operations
+
+When updating information our API, we have two methods available:
+1. PUT - full replacement
+2. PATCH - partial update (only send what has changed)
+
+### Partial Update Schema
+
+We need to create a new schema for updating a post where all of the required fields are optional by default,
+this ensures that when a user does a PATCH that they only update the field(s) that they want to.
+
+```python
+class PostUpdate(PostBase):
+    """Model for updating a post."""
+    title: str | None = Field(default=None, min_length=1, max_length=100)
+    content: str | None = Field(default=None, min_length=1)
+```
+
+We can now define our new PATCH endpoint:
+
+```python
+@app.patch(path="/api/posts/{post_id}", response_model=PostResponse)
+def update_post_partial(post_id: int, post_data: PostUpdate, db: Annotated[Session, Depends(get_db)]):
+    """Update a post via PATCH
+
+    Args:
+        post_id (int): The ID of the post.
+        post_data (PostCreate): The post data to update.
+        db (Session): A database session.
+
+    Returns:
+        PostResponse: The updated post.
+
+    Raises:
+        HTTPException: If the post does not exist.
+    """
+    res = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = res.scalars().first()
+    if not post:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    update_data = post_data.model_dump(exclude_unset=True) # contains data from body
+    for field, value in update_data.items():
+        setattr(post, field, value) # set the post attributes with the field (ie TITLE) with new value
+
+    db.commit()
+    db.refresh(post)
+    return post
+```
+
+Here, we use the `model_dump(exclude_unset=True)` to ensure that any fields that are marked optional with a default of None, are not set to
+None if the user does not include them in their request. The `model_dump()` function creates a dictionary representation
+of our `PostUpdate` (`post_data`) model wherein we can then dynamically update the attributes for each changed field.
+
+## DELETE Method
+
+We can use the DELETE method to delete data via our API from our database, and because we are removing data/content from
+our application we do not return a `PostResponse` and instead we return a status code of 204 to indicate success.
+
+```python
+@app.delete(
+    "/api/posts/{post_id}",
+    status_code=status.HTTP_204_NO_CONTENT, # return 204 no content as it has been deleted
+)
+def delete_post(post_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Delete a specific post by ID.
+
+    Args:
+        post_id (int): The ID of the post.
+        db (Session): A database session.
+
+    Returns:
+       204 NO CONTENT: Delete is successful and returns no content
+    """
+    res = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = res.scalars().first()
+    if not post:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    db.delete(post)
+    db.commit()
+```
+
+## Status Codes (so far)
+
+Below are the status codes that we have encountered so far, and what they mean:
+* **200 OK** - Successful GET, PUT, or PATCH
+* **201 Created** - Successful POST for users and posts
+* **204 No Content** - Successful DELETE
+* **400 Bad Request** - Duplicate username/email when creating a new user
+* **404 Not Found** - Resource does not exist
+* **422 Unprocessable Entity** - Validation error
+
+## Deleting Users
+
+When we delete a user we have to consider the fallout of what happens when that user does not exist anymore.
+For instance, have they made posts to your application and if so do we delete the just the user, or do we delete the
+user and the posts? Deleting everything is called a **Cascade Deletion** and it is what we are going to.
+
+First of all, we need to update our database models `models.py` to change the behaviour of our `User` class. Currently
+we have a relationship for the users posts where it backpopulates the authour field for the post
+
+```python
+    posts: Mapped[list[Post]] = relationship(
+        "Post", back_populates="author",
+    )
+```
+
+To ensure our cascade deletion works, we need to update this relationship to this:
+
+```python
+    posts: Mapped[list[Post]] = relationship(
+        "Post", back_populates="author", cascade="all, delete-orphan"
+    )
+```
+
+This `cascade="all, delete-orphan"` ensures that on deletion of a user from our application that all of their data
+is also deleted at the same time. If for some reason the user was deleted but a post remained, the `delete-orphan` ensures
+that is is also captured.
+
+With this new cascade delete setup we can also create our DELETE endpoint:
+
+```python
+@app.delete(path="/api/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Delete a specific user by ID.
+
+    Args:
+        user_id (int): The ID of the user to be deleted.
+        db (Session): A database session.
+
+    Returns:
+        204 NO CONTENT: Delete is successful and returns no content
+    """
+    res = db.execute(select(models.User).where(models.User.id == user_id))
+    user = res.scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    db.delete(user)
+    db.commit()
+```
