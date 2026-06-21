@@ -1,0 +1,40 @@
+version: '3'
+services:
+  app_1:
+    build: .
+    environment:
+      - APP_NAME=App_1
+    expose:
+      - "3000"
+
+  app_2:
+    build: .
+    environment:
+      - APP_NAME=App_2
+    expose:
+      - "3000"
+
+  app_3:
+    build: .
+    environment:
+      - APP_NAME=App_3
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:1.31.0
+    container_name: nginx
+    restart: on-failure
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./certs:/etc/nginx/certs
+    depends_on:
+      app_1:
+        condition: service_started
+      app_2:
+        condition: service_started
+      app_3:
+        condition: service_started
