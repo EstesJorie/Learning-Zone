@@ -24,3 +24,4 @@ uv sync --frozen --group <group_name>
 - [Pydantic V2](./scripts/pydantic//pydantic-NOTES.MD)
 - [FastAPI](./scripts/fastapi/NOTES.md)
 - [Introduction to NGINX](./scripts/intro-to-nginx/NOTES.md)
+- [NGINX and Docker](./scripts/nginx-and-docker/NOTES.md)
