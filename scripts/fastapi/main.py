@@ -97,7 +97,9 @@ async def home(
         TemplateResponse: The rendered home page.
     """
     res = await db.execute(
-        select(models.Post).options(selectinload(models.Post.author))
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .order_by(models.Post.date_posted.desc())  # order by newest first
     )
     posts = res.scalars().all()
     return templates.TemplateResponse(
@@ -165,6 +167,7 @@ async def user_posts_page(
         select(models.Post)
         .options(selectinload(models.Post.author))
         .where(models.Post.user_id == user_id)
+        .order_by(models.Post.date_posted.desc())  # order by newest first
     )
     posts = result.scalars().all()
     return templates.TemplateResponse(

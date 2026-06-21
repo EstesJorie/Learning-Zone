@@ -1237,3 +1237,89 @@ Here, `include_router` connects the router to our FastAPI app at the designated 
 will get their URLs prefixed with the assigned prefix, so when we left our routes blank they will become `/api/users`.
 The tags help to organise our documentation page to create sections where our routes are located which can be expanded
 and collapsed.
+
+# Authentication - Registration and Login with JWT
+
+Authentication answers the question of "_who are you?_" whereas authorisation denotes what you are allowed to do. To
+add authentication to our application we are going to need some new packages:
+
+* _**pwdlib[argon2]**_ = for password hashing
+* **_pyjwt_** = for creating and verifying JWT tokens
+* **_pydantic-settings_** = for configuration management
+
+To add passwords to our application we need to make some changes. In `models.py`, we need to pass a `password_hash` field
+to our User model:
+
+```python
+password_hash: Mapped[str] = mapped_column(String(200), nullable=False)
+```
+
+Here, we ensure that this hash column can be up to 200 characters long, and that it does not have to be unique. Note that
+we are not storing the users password as plaintext, but we are going to store the hashed version of it. We also need
+to update our `schemas.py` to ensure that when a user creates their account they can enter a password.
+
+```python
+class UserCreate(UserBase):
+    password: str = Field(min_length=8)
+```
+
+We also need to update our UserResponse models to include both a public and private response model to ensure that we do
+not display sensitive, private information in a public way:
+
+```python
+class UserPublic(BaseModel):
+    """Model for a public user."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    image_file: str | None
+    image_path: str
+
+class UserPrivate(UserPublic):
+    """Model for authenticating a user."""
+    email: EmailStr
+```
+
+We will also need to add a new schema to handle our JWT Token:
+
+```python
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+```
+
+### Configuration
+
+To be able to load secret values into our application at runtime, we are going to create a new file `config.py` to handle
+this. Lets set some settings for our application:
+
+```python
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    secret_key: SecretStr
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+
+settings = Settings() # Loaded from .env
+```
+
+We use the `model_config` to automatically load files from an environment variable file (`.env`), to ensure we do not
+leak our secret key we use the SecretStr, the algorithm ensures we use HS256 hasing algorithm, and the token expiry
+ensures that we do not generate JWT tokens that are valid forever.
+
+To generate your secret key you can run:
+
+```python
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+You can then copy the generated key into your `.env` file and it is much safer than defining a seemingly _random_ secret
+key.
