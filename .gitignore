@@ -24,3 +24,6 @@ env/
 
 /scripts/fastapi/blog.db
 scripts/fastapi/media/profile_pics/gitlogo.png
+scripts/nginx-and-docker/certs
+scripts/nginx-and-docker/node_modules
+package-lock.json
