@@ -1,6 +1,6 @@
 <img src="./img/logo.png" alt="Logo" width=125 height=175>
 
-# Python Scratch Repo
+# Learning Zone
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/python-3.14%2B-blue)](#)
@@ -8,7 +8,7 @@
 [![Pre-Commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](#)
 [![UV](https://img.shields.io/badge/Package%20Manager-uv-purple)](#)
 
-This is a Python learning repo.
+This is repo focuses on different areas of learning.
 
 ## Installation
 
@@ -22,3 +22,5 @@ uv sync --frozen --group <group_name>
 ## Table of Contents
 
 [Pydantic V2](./scripts/pydantic//pydantic-NOTES.MD)
+[FastAPI](./scripts/fastapi/NOTES.md)
+[Introduction to NGINX](./scripts/intro-to-nginx/NOTES.md)
